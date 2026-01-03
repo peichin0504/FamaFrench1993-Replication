@@ -1,186 +1,334 @@
 /*==============================================================================
     02_summary_statistics.do
     
-    Purpose: Generate summary stats (trying to replicate parts of Table 2)
+    Purpose: Replicate Fama-French (1993) Table 2
+             Summary statistics for 25 portfolios and factors
     
-    Table 2 in FF1993 has:
-    - Mean returns and standard deviations
-    - Autocorrelations
-    - Correlations among factors
+    Input:  merged_data.dta
+    Output: Summary statistics tables
 ==============================================================================*/
 
+clear all
+set more off
+
+global root "/Users/pei-chin/Research/FamaFrench_1993_Replication"
+
+* Create output directory
+cap mkdir "$root/output"
+cap mkdir "$root/output/tables"
+
+* Load data
 use "$root/data/processed/merged_data.dta", clear
 
+di ""
+di "======================================================================"
+di "SUMMARY STATISTICS - Replicating Table 2"
+di "======================================================================"
+di ""
+di "Sample period: " %tm date[1] " to " %tm date[_N]
+di "Number of months: " _N
+di "======================================================================"
+
 /*------------------------------------------------------------------------------
-    Part 1: Summary Stats for the 25 Portfolios (Table 2a style)
+    1. Factor Summary Statistics
 ------------------------------------------------------------------------------*/
 
-// Set up matrices to store our results
-matrix means = J(5, 5, .)
-matrix sds = J(5, 5, .)
-matrix tstats = J(5, 5, .)
+di ""
+di "======================================================================"
+di "Part 1: Factor Summary Statistics"
+di "======================================================================"
+di ""
 
-// Loop through each portfolio and calculate mean, sd, t-stat
+* Calculate statistics for each factor
+* Note: Going through the basic factors first
+foreach var in mktrf smb hml rf {
+    qui sum `var'  // shortened quietly for readability
+    local mean_`var' = r(mean)
+    local sd_`var' = r(sd)
+    local n_`var' = r(N)
+    local tstat_`var' = `mean_`var'' / (`sd_`var'' / sqrt(`n_`var''))
+}
+
+di "Factor         Mean     Std Dev    t-stat     N"
+di "------------------------------------------------------"
+di "Mkt-RF      " %8.3f `mean_mktrf' "   " %8.3f `sd_mktrf' "   " %6.2f `tstat_mktrf' "   " `n_mktrf'
+di "SMB         " %8.3f `mean_smb' "   " %8.3f `sd_smb' "   " %6.2f `tstat_smb' "   " `n_smb'
+di "HML         " %8.3f `mean_hml' "   " %8.3f `sd_hml' "   " %6.2f `tstat_hml' "   " `n_hml'
+di "RF          " %8.3f `mean_rf' "   " %8.3f `sd_rf' "   " %6.2f `tstat_rf' "   " `n_rf'
+di "------------------------------------------------------"
+
+/*------------------------------------------------------------------------------
+    2. Portfolio Mean Excess Returns (5x5 Matrix)
+------------------------------------------------------------------------------*/
+
+di ""
+di "======================================================================"
+di "Part 2: Mean Excess Returns (% per month)"
+di "======================================================================"
+di ""
+di "Rows = Size (1=Small to 5=Big)"
+di "Cols = Book-to-Market (1=Low/Growth to 5=High/Value)"
+di ""
+
+* Create matrix for mean returns
+matrix mean_ret = J(5, 5, .)
+
+// Loop through all portfolio combinations
 forvalues size = 1/5 {
     forvalues bm = 1/5 {
-        quietly summarize exret`size'`bm'
-        local mean = r(mean)
-        local sd = r(sd)
-        local n = r(N)
-        local tstat = `mean' / (`sd' / sqrt(`n'))
-        
-        matrix means[`size', `bm'] = `mean'
-        matrix sds[`size', `bm'] = `sd'
-        matrix tstats[`size', `bm'] = `tstat'
+        qui sum exret`size'`bm'
+        matrix mean_ret[`size', `bm'] = r(mean)
     }
 }
 
-// Add labels to make the output readable
-matrix colnames means = "Low" "2" "3" "4" "High"
-matrix rownames means = "Small" "2" "3" "4" "Big"
-matrix colnames sds = "Low" "2" "3" "4" "High"
-matrix rownames sds = "Small" "2" "3" "4" "Big"
-matrix colnames tstats = "Low" "2" "3" "4" "High"
-matrix rownames tstats = "Small" "2" "3" "4" "Big"
-
-// Show the results
-di _newline(2) "=" * 70
-di "TABLE 2a: Mean Monthly Excess Returns (in percent)"
-di "25 Portfolios Formed on Size and Book-to-Market"
-di "=" * 70
-matrix list means, format(%6.2f)
-
-di _newline(2) "=" * 70
-di "Standard Deviations of Monthly Excess Returns"
-di "=" * 70
-matrix list sds, format(%6.2f)
-
-di _newline(2) "=" * 70
-di "t-statistics for Mean Returns"
-di "=" * 70
-matrix list tstats, format(%6.2f)
-
-/*------------------------------------------------------------------------------
-    Part 2: Summary Stats for the Factors (Table 2b style)
-------------------------------------------------------------------------------*/
-
-di _newline(2) "=" * 70
-di "TABLE 2b: Summary Statistics for Explanatory Variables"
-di "=" * 70
-
-// Quick summary of all factors
-summarize mktrf smb hml rf
-
-// Now let's make a nicer table
-di _newline "Detailed Factor Statistics:"
-di "-" * 60
-
-foreach var in mktrf smb hml rf {
-    quietly summarize `var'
-    local mean = r(mean)
-    local sd = r(sd)
-    local n = r(N)
-    local tstat = `mean' / (`sd' / sqrt(`n'))
-    
-    di "`var':"
-    di "  Mean     = " %8.4f `mean'
-    di "  Std Dev  = " %8.4f `sd'
-    di "  t-stat   = " %8.2f `tstat'
-    di ""
-}
-
-/*------------------------------------------------------------------------------
-    Part 3: Autocorrelations (from Table 2)
-------------------------------------------------------------------------------*/
-
-di _newline(2) "=" * 70
-di "Autocorrelations of Factors"
-di "=" * 70
-
-// Check autocorrelation for each factor
-foreach var in mktrf smb hml rf {
-    di _newline "`var':"
-    corrgram `var', lags(12) noplot
-}
-
-/*------------------------------------------------------------------------------
-    Part 4: Correlation Matrix (Table 2)
-------------------------------------------------------------------------------*/
-
-di _newline(2) "=" * 70
-di "TABLE 2c: Correlations among Explanatory Variables"
-di "=" * 70
-
-correlate mktrf smb hml
-
-/*------------------------------------------------------------------------------
-    Part 5: Export Results to CSV for later use
-------------------------------------------------------------------------------*/
-
-// Export the mean returns matrix
-preserve
-clear
-svmat means, names(bm)
-gen size = _n
-label define size_lbl 1 "Small" 2 "2" 3 "3" 4 "4" 5 "Big", replace
-label values size size_lbl
-order size
-export delimited using "$root/output/tables/table2_mean_returns.csv", replace
-restore
-
-// Export standard deviations too
-preserve
-clear
-svmat sds, names(bm)
-gen size = _n
-order size
-export delimited using "$root/output/tables/table2_std_dev.csv", replace
-restore
-
-/*------------------------------------------------------------------------------
-    Part 6: Extra Stats - Average Returns by Size and BM Groups
-------------------------------------------------------------------------------*/
-
-di _newline(2) "=" * 70
-di "Average Returns by Size Quintile (across BM)"
-di "=" * 70
-
-// For each size group, average across all BM quintiles
+* Display matrix nicely formatted
+di "            Low BM    BM2       BM3       BM4     High BM"
+di "          (Growth)                               (Value)"
+di "--------------------------------------------------------------"
 forvalues size = 1/5 {
-    egen avg_size`size' = rowmean(exret`size'1 exret`size'2 exret`size'3 exret`size'4 exret`size'5)
-    quietly summarize avg_size`size'
-    di "Size `size': Mean = " %6.3f r(mean) ", SD = " %6.3f r(sd)
+    // Create size labels - probably could clean this up but works for now
+    if `size'==1 {
+        local size_label = "Small"
+    }
+    else if `size'==5 {
+        local size_label = "Big  "
+    }
+    else {
+        local size_label = "Size`size'"
+    }
+    di "`size_label'" _col(12) %8.3f mean_ret[`size',1] %8.3f mean_ret[`size',2] %8.3f mean_ret[`size',3] %8.3f mean_ret[`size',4] %8.3f mean_ret[`size',5]
+}
+di "--------------------------------------------------------------"
+
+* Calculate row and column averages - let's see patterns
+di ""
+di "Average by Size (across all B/M):"
+forvalues size = 1/5 {
+    local rowsum = 0
+    forvalues bm = 1/5 {
+        local rowsum = `rowsum' + mean_ret[`size', `bm']
+    }
+    local rowavg = `rowsum' / 5
+    if `size'==1 {
+        local size_label = "Small"
+    }
+    else if `size'==5 {
+        local size_label = "Big"
+    }
+    else {
+        local size_label = "Size`size'"
+    }
+    di "  `size_label': " %8.3f `rowavg'
 }
 
-di _newline(2) "=" * 70
-di "Average Returns by BM Quintile (across Size)"
-di "=" * 70
-
-// For each BM group, average across all size quintiles
+di ""
+di "Average by B/M (across all Size):"
 forvalues bm = 1/5 {
-    egen avg_bm`bm' = rowmean(exret1`bm' exret2`bm' exret3`bm' exret4`bm' exret5`bm')
-    quietly summarize avg_bm`bm'
-    di "BM `bm': Mean = " %6.3f r(mean) ", SD = " %6.3f r(sd)
+    local colsum = 0
+    forvalues size = 1/5 {
+        local colsum = `colsum' + mean_ret[`size', `bm']
+    }
+    local colavg = `colsum' / 5
+    if `bm'==1 {
+        local bm_label = "Low BM"
+    }
+    else if `bm'==5 {
+        local bm_label = "High BM"
+    }
+    else {
+        local bm_label = "BM`bm'"
+    }
+    di "  `bm_label': " %8.3f `colavg'
 }
 
 /*------------------------------------------------------------------------------
-    Part 7: Check Size and Value Spreads
+    3. Portfolio Standard Deviations (5x5 Matrix)
 ------------------------------------------------------------------------------*/
 
-di _newline(2) "=" * 70
-di "Size and Value Spreads"
-di "=" * 70
+di ""
+di "======================================================================"
+di "Part 3: Standard Deviations of Excess Returns (% per month)"
+di "======================================================================"
+di ""
 
-// SMB-like spread: Small stocks minus Big stocks (averaged across BM)
-gen smb_check = avg_size1 - avg_size5
-summarize smb smb_check
-di "Correlation between SMB factor and computed spread:"
-correlate smb smb_check
+matrix sd_ret = J(5, 5, .)
 
-// HML-like spread: High BM minus Low BM (averaged across Size)
-gen hml_check = avg_bm5 - avg_bm1
-summarize hml hml_check
-di "Correlation between HML factor and computed spread:"
-correlate hml hml_check
+forvalues size = 1/5 {
+    forvalues bm = 1/5 {
+        qui sum exret`size'`bm'
+        matrix sd_ret[`size', `bm'] = r(sd)
+    }
+}
 
-di _newline "Done with summary statistics!"
+di "            Low BM    BM2       BM3       BM4     High BM"
+di "--------------------------------------------------------------"
+forvalues size = 1/5 {
+    if `size'==1 {
+        local size_label = "Small"
+    }
+    else if `size'==5 {
+        local size_label = "Big  "
+    }
+    else {
+        local size_label = "Size`size'"
+    }
+    di "`size_label'" _col(12) %8.3f sd_ret[`size',1] %8.3f sd_ret[`size',2] %8.3f sd_ret[`size',3] %8.3f sd_ret[`size',4] %8.3f sd_ret[`size',5]
+}
+di "--------------------------------------------------------------"
+
+/*------------------------------------------------------------------------------
+    4. t-Statistics for Mean Returns
+------------------------------------------------------------------------------*/
+
+di ""
+di "======================================================================"
+di "Part 4: t-Statistics for Mean Excess Returns"
+di "======================================================================"
+di ""
+di "(Testing H0: mean = 0)"
+di ""
+
+matrix tstat_ret = J(5, 5, .)
+local T = _N  // Total number of observations
+
+// Computing t-stats for each portfolio
+forvalues size = 1/5 {
+    forvalues bm = 1/5 {
+        local tstat = mean_ret[`size', `bm'] / (sd_ret[`size', `bm'] / sqrt(`T'))
+        matrix tstat_ret[`size', `bm'] = `tstat'
+    }
+}
+
+di "            Low BM    BM2       BM3       BM4     High BM"
+di "--------------------------------------------------------------"
+forvalues size = 1/5 {
+    if `size'==1 {
+        local size_label = "Small"
+    }
+    else if `size'==5 {
+        local size_label = "Big  "
+    }
+    else {
+        local size_label = "Size`size'"
+    }
+    di "`size_label'" _col(12) %8.2f tstat_ret[`size',1] %8.2f tstat_ret[`size',2] %8.2f tstat_ret[`size',3] %8.2f tstat_ret[`size',4] %8.2f tstat_ret[`size',5]
+}
+di "--------------------------------------------------------------"
+
+/*------------------------------------------------------------------------------
+    5. Size and Value Spreads
+------------------------------------------------------------------------------*/
+
+di ""
+di "======================================================================"
+di "Part 5: Size and Value Spreads"
+di "======================================================================"
+di ""
+
+* SMB-like spread: Average Small - Average Big
+* Calculate average for small stocks (size quintile 1)
+local small_avg = (mean_ret[1,1] + mean_ret[1,2] + mean_ret[1,3] + mean_ret[1,4] + mean_ret[1,5]) / 5
+* Calculate average for big stocks (size quintile 5)
+local big_avg = (mean_ret[5,1] + mean_ret[5,2] + mean_ret[5,3] + mean_ret[5,4] + mean_ret[5,5]) / 5
+local size_spread = `small_avg' - `big_avg'
+
+di "Size Spread (Small - Big):"
+di "  Average Small portfolio return: " %8.3f `small_avg'
+di "  Average Big portfolio return:   " %8.3f `big_avg'
+di "  Size spread:                    " %8.3f `size_spread'
+
+di ""
+
+* HML-like spread: Average High BM - Average Low BM
+local highbm_avg = (mean_ret[1,5] + mean_ret[2,5] + mean_ret[3,5] + mean_ret[4,5] + mean_ret[5,5]) / 5
+local lowbm_avg = (mean_ret[1,1] + mean_ret[2,1] + mean_ret[3,1] + mean_ret[4,1] + mean_ret[5,1]) / 5
+local value_spread = `highbm_avg' - `lowbm_avg'
+
+di "Value Spread (High B/M - Low B/M):"
+di "  Average High B/M portfolio return: " %8.3f `highbm_avg'
+di "  Average Low B/M portfolio return:  " %8.3f `lowbm_avg'
+di "  Value spread:                      " %8.3f `value_spread'
+
+/*------------------------------------------------------------------------------
+    6. Factor Correlations
+------------------------------------------------------------------------------*/
+
+di ""
+di "======================================================================"
+di "Part 6: Factor Correlations"
+di "======================================================================"
+di ""
+
+// Check how factors correlate with each other
+corr mktrf smb hml
+
+/*------------------------------------------------------------------------------
+    7. Export Results to CSV
+------------------------------------------------------------------------------*/
+
+di ""
+di "======================================================================"
+di "Exporting results to CSV..."
+di "======================================================================"
+
+* Export mean returns matrix
+preserve
+clear
+set obs 5
+gen size = _n
+gen lowbm = .
+gen bm2 = .
+gen bm3 = .
+gen bm4 = .
+gen highbm = .
+
+// Fill in the values from our matrix
+forvalues size = 1/5 {
+    replace lowbm = mean_ret[`size', 1] if size == `size'
+    replace bm2 = mean_ret[`size', 2] if size == `size'
+    replace bm3 = mean_ret[`size', 3] if size == `size'
+    replace bm4 = mean_ret[`size', 4] if size == `size'
+    replace highbm = mean_ret[`size', 5] if size == `size'
+}
+
+label define size_lbl 1 "Small" 2 "Size2" 3 "Size3" 4 "Size4" 5 "Big"
+label values size size_lbl
+
+export delimited "$root/output/tables/table2_mean_returns.csv", replace
+restore
+
+* Export standard deviations matrix
+preserve
+clear
+set obs 5
+gen size = _n
+gen lowbm = .
+gen bm2 = .
+gen bm3 = .
+gen bm4 = .
+gen highbm = .
+
+forvalues size = 1/5 {
+    replace lowbm = sd_ret[`size', 1] if size == `size'
+    replace bm2 = sd_ret[`size', 2] if size == `size'
+    replace bm3 = sd_ret[`size', 3] if size == `size'
+    replace bm4 = sd_ret[`size', 4] if size == `size'
+    replace highbm = sd_ret[`size', 5] if size == `size'
+}
+
+export delimited "$root/output/tables/table2_std_dev.csv", replace
+restore
+
+di ""
+di "======================================================================"
+di "SUMMARY STATISTICS COMPLETE!"
+di "======================================================================"
+di ""
+di "Key Findings:"
+di "1. Size Effect: Small stocks earn " %5.3f `size_spread' "% more per month than big stocks"
+di "2. Value Effect: High B/M stocks earn " %5.3f `value_spread' "% more per month than low B/M"
+di ""
+di "Output files:"
+di "  - $root/output/tables/table2_mean_returns.csv"
+di "  - $root/output/tables/table2_std_dev.csv"
+di "======================================================================"
