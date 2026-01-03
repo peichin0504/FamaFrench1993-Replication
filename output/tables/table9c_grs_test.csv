@@ -1,0 +1,3 @@
+model,grs_fstat,df_num,df_denom,p_value,avg_abs_alpha,sum_sq_alpha
+CAPM,3.3402824,25,1161,6.7915686e-08,.15139246,.97967696
+Three-Factor,3.3139863,25,1159,8.5128505e-08,.11579893,.88046646
